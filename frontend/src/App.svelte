@@ -278,7 +278,7 @@
   function fmtTimeShort(t) {
     try { return new Date(t).toLocaleTimeString() } catch (e) { return t }
   }
-  const BUILD_TAG = 'build 1105-d (domínios liberados)'
+  const BUILD_TAG = 'build 1105-e (arquivo no histórico)'
   function isV6(ip) { return ip && ip.indexOf(':') !== -1 }
   function endpoint(ip, port) {
     if (!ip) return '—'
@@ -410,7 +410,7 @@
               <th style="cursor:pointer" on:click={() => setSort('proto')}>Proto{arrow('proto')}</th>
               <th style="cursor:pointer" on:click={() => setSort('time')}>Hora{arrow('time')}</th>
               <th style="cursor:pointer" on:click={() => setSort('dir')}>Dir.{arrow('dir')}</th>
-              <th style="cursor:pointer" on:click={() => setSort('proc')}>Processo{arrow('proc')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('proc')}>Processo / arquivo{arrow('proc')}</th>
               <th style="cursor:pointer" on:click={() => setSort('remote')}>Remoto{arrow('remote')}</th>
               <th style="cursor:pointer" on:click={() => setSort('local')}>Local{arrow('local')}</th>
               <th style="cursor:pointer" on:click={() => setSort('decision')}>Decisão{arrow('decision')}</th>
@@ -424,9 +424,12 @@
                 <td><span class="tag" style="text-transform:uppercase;font-weight:800;background:{h.protocol === 'udp' ? 'rgba(183,140,255,.18)' : 'rgba(74,163,255,.15)'};color:{h.protocol === 'udp' ? 'var(--outbound)' : 'var(--inbound)'}">{h.protocol || '?'}</span></td>
                 <td title={fmtTime(h.time)} style="white-space:nowrap">{fmtTimeShort(h.time)}</td>
                 <td><span class="tag {h.direction}">{h.direction === 'inbound' ? '↓' : '↑'}</span></td>
-                <td class="ellip" title={h.processPath}>
-                  {h.processName || (h.pid ? 'PID ' + h.pid : '—')}
-                  {#if h.processPath || h.processName}<button class="btn ghost sm" style="padding:1px 6px;margin-left:4px" on:click={() => checkSafe(h)} title="É seguro?">🔍</button>{/if}
+                <td class="proccell" title={h.processPath || 'caminho não identificado'}>
+                  <div class="procline">
+                    <span>{h.processName || (h.pid ? 'PID ' + h.pid : '—')}</span>
+                    {#if h.processPath || h.processName}<button class="btn ghost sm" style="padding:1px 6px" on:click={() => checkSafe(h)} title="É seguro?">🔍</button>{/if}
+                  </div>
+                  <div class="procpath">{h.processPath || 'caminho não identificado'}{h.pid ? ' · PID ' + h.pid : ''}</div>
                 </td>
                 <td class="ellip" title={h.remoteHost}>
                   {endpoint(h.remoteIp, h.remotePort)}

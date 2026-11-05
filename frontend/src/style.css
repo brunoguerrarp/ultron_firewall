@@ -106,6 +106,9 @@ th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--bor
 th { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
 tr:hover td { background: var(--panel-2); }
 td.ellip { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+td.proccell { max-width: 340px; }
+.procline { display: flex; align-items: center; gap: 4px; }
+.procpath { font-size: 11px; color: var(--muted); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
 .tag.allow { background: rgba(55,200,113,.15); color: var(--allow); }
