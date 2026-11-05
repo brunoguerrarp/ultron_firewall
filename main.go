@@ -12,6 +12,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/windows/icon.ico
+var trayIcon []byte
+
 func main() {
 	app := NewApp()
 
@@ -25,6 +28,7 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 15, G: 18, B: 25, A: 1},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
+		OnBeforeClose:    app.onBeforeClose,
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,

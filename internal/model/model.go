@@ -43,6 +43,8 @@ type Connection struct {
 	LocalPort   uint16    `json:"localPort"`
 	RemoteIP    string    `json:"remoteIp"`
 	RemotePort  uint16    `json:"remotePort"`
+	RemoteHost  string    `json:"remoteHost"` // reverse-DNS name of the remote IP, if any
+	Service     string    `json:"service"`    // well-known service name for the remote port
 }
 
 // HistoryEntry is a persisted record of a decision taken on a connection.
@@ -52,6 +54,7 @@ type HistoryEntry struct {
 	RuleMatch  string `json:"ruleMatch"` // rule id, "prompt", "default" or "disabled"
 	Threat     bool   `json:"threat"`
 	ThreatKind string `json:"threatKind"`
+	Severity   string `json:"severity"` // "low" (green), "medium" (yellow), "high" (red)
 }
 
 // Rule is a persisted allow/block decision.
@@ -72,16 +75,19 @@ type Rule struct {
 type Config struct {
 	Enabled       bool   `json:"enabled"`       // engine running
 	PromptEnabled bool   `json:"promptEnabled"` // ask the user on unknown connections
+	NotifyEnabled bool   `json:"notifyEnabled"` // show tray popups for decisions while the window is hidden
+	InterceptUDP  bool   `json:"interceptUdp"`  // capture/log outbound UDP (allowed by default, blockable by rule)
 
 	DefaultOutbound   Action `json:"defaultOutbound"`   // applied when prompt disabled / times out
 	DefaultInbound    Action `json:"defaultInbound"`    //
 	PromptTimeoutSecs int    `json:"promptTimeoutSecs"` // 0 = wait forever
 
 	// Threat detection + remote reporting.
-	ReportEnabled bool     `json:"reportEnabled"`
-	ReportURL     string   `json:"reportUrl"`
-	ReportToken   string   `json:"reportToken"`
-	Blocklist     []string `json:"blocklist"` // remote IPs always treated as attacks
+	ReportEnabled  bool     `json:"reportEnabled"`
+	ReportURL      string   `json:"reportUrl"`
+	ReportToken    string   `json:"reportToken"`
+	Blocklist      []string `json:"blocklist"`      // remote IPs always treated as attacks
+	AllowedDomains []string `json:"allowedDomains"` // domains (+ subdomains) always allowed, via DNS snooping
 
 	DetectInbound   bool `json:"detectInbound"`   // unsolicited inbound
 	DetectScan      bool `json:"detectScan"`      // port scan heuristic
@@ -97,6 +103,8 @@ func DefaultConfig() Config {
 	return Config{
 		Enabled:           true,
 		PromptEnabled:     true,
+		NotifyEnabled:     true,
+		InterceptUDP:      true,
 		DefaultOutbound:   ActionBlock,
 		DefaultInbound:    ActionBlock,
 		PromptTimeoutSecs: 30,
@@ -104,6 +112,7 @@ func DefaultConfig() Config {
 		ReportURL:         "",
 		ReportToken:       "",
 		Blocklist:         []string{},
+		AllowedDomains:    []string{"likesystem.com.br"},
 		DetectInbound:     true,
 		DetectScan:        true,
 		DetectBlocklist:   true,

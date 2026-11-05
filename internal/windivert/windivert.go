@@ -178,7 +178,7 @@ func CompileFilter(filter string, layer int) error {
 		return err
 	}
 	var obj [2048]byte
-	var errStr uintptr
+	var errStr *byte
 	var errPos uint32
 	r, _, _ := procCompile.Call(
 		uintptr(unsafe.Pointer(fb)),
@@ -190,8 +190,8 @@ func CompileFilter(filter string, layer int) error {
 	)
 	if r == 0 {
 		msg := ""
-		if errStr != 0 {
-			msg = windows.BytePtrToString((*byte)(unsafe.Pointer(errStr)))
+		if errStr != nil {
+			msg = windows.BytePtrToString(errStr)
 		}
 		return fmt.Errorf("invalid filter at position %d: %s", errPos, msg)
 	}
@@ -248,6 +248,50 @@ func (h *Handle) Allow(addr *Address) error {
 		0, // pPacket
 		0, // packetLen
 		0, // pSendLen
+		uintptr(unsafe.Pointer(addr)),
+	)
+	if r == 0 {
+		return fmt.Errorf("WinDivertSend failed: %w", callErr)
+	}
+	return nil
+}
+
+// RecvPacket blocks until a packet is captured, copying it into buf and filling
+// addr. It returns the number of bytes written to buf.
+func (h *Handle) RecvPacket(buf []byte, addr *Address) (int, error) {
+	var recvLen uint32
+	var pkt uintptr
+	if len(buf) > 0 {
+		pkt = uintptr(unsafe.Pointer(&buf[0]))
+	}
+	r, _, callErr := procRecv.Call(
+		h.h,
+		pkt,
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&recvLen)),
+		uintptr(unsafe.Pointer(addr)),
+	)
+	if r == 0 {
+		return 0, fmt.Errorf("WinDivertRecv failed: %w", callErr)
+	}
+	return int(recvLen), nil
+}
+
+// SendPacket re-injects a captured packet, letting it proceed. Used at the
+// NETWORK layer to "allow" a pended connection.
+func (h *Handle) SendPacket(buf []byte, addr *Address) error {
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
+	var sendLen uint32
+	var pkt uintptr
+	if len(buf) > 0 {
+		pkt = uintptr(unsafe.Pointer(&buf[0]))
+	}
+	r, _, callErr := procSend.Call(
+		h.h,
+		pkt,
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&sendLen)),
 		uintptr(unsafe.Pointer(addr)),
 	)
 	if r == 0 {

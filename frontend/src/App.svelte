@@ -32,6 +32,7 @@
   // New rule form
   let nr = newRule()
   let blocklistText = ''
+  let allowedText = ''
 
   // History filter
   let filter = ''
@@ -61,6 +62,7 @@
     try {
       config = await call('GetConfig')
       blocklistText = (config.blocklist || []).join('\n')
+      allowedText = (config.allowedDomains || []).join('\n')
     } catch (e) { notify('' + e) }
   }
   async function loadRules() { try { rules = await call('ListRules') } catch (e) { notify('' + e) } }
@@ -79,6 +81,41 @@
     return (h.processName || '').toLowerCase().includes(f)
       || (h.remoteIp || '').toLowerCase().includes(f)
       || (h.processPath || '').toLowerCase().includes(f)
+  })
+
+  // History sorting (clickable column headers).
+  let sortKey = 'time'
+  let sortDir = 'desc'
+  const riskRank = { low: 0, medium: 1, high: 2 }
+  function setSort(key) {
+    if (sortKey === key) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc'
+    } else {
+      sortKey = key
+      sortDir = key === 'time' ? 'desc' : 'asc'
+    }
+  }
+  function arrow(key) {
+    return sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  }
+  function sortVal(h, key) {
+    switch (key) {
+      case 'risk': return riskRank[h.severity || 'low']
+      case 'time': return new Date(h.time).getTime() || 0
+      case 'dir': return h.direction || ''
+      case 'proc': return (h.processName || '').toLowerCase()
+      case 'remote': return (h.remoteHost || h.remoteIp || '').toLowerCase()
+      case 'local': return h.localIp || ''
+      case 'proto': return h.protocol || ''
+      case 'decision': return h.decision || ''
+      case 'threat': return h.threatKind || ''
+      default: return 0
+    }
+  }
+  $: sortedHistory = [...filteredHistory].sort((a, b) => {
+    const va = sortVal(a, sortKey), vb = sortVal(b, sortKey)
+    const c = va < vb ? -1 : va > vb ? 1 : 0
+    return sortDir === 'asc' ? c : -c
   })
 
   onMount(async () => {
@@ -115,6 +152,18 @@
       await call('RespondPrompt', p.id, action, scope)
     } catch (e) { notify('' + e) }
     prompts = prompts.filter(x => x.id !== p.id)
+  }
+
+  async function checkSafe(x) {
+    try {
+      await call('CheckProcess', x.processPath || '', x.processName || '')
+      notify('Abrindo verificação de reputação no navegador...')
+    } catch (e) { notify('' + e) }
+  }
+
+  async function quitApp() {
+    if (!guardEdit()) return
+    try { await call('QuitApp') } catch (e) { notify('' + e) }
   }
 
   // ---- Auth ----
@@ -175,6 +224,7 @@
   async function saveConfig() {
     if (!guardEdit()) return
     config.blocklist = blocklistText.split('\n').map(s => s.trim()).filter(Boolean)
+    config.allowedDomains = allowedText.split('\n').map(s => s.trim()).filter(Boolean)
     config.promptTimeoutSecs = Number(config.promptTimeoutSecs) || 0
     config.scanWindowSecs = Number(config.scanWindowSecs) || 0
     config.scanPortThreshold = Number(config.scanPortThreshold) || 0
@@ -225,7 +275,25 @@
   function fmtTime(t) {
     try { return new Date(t).toLocaleString() } catch (e) { return t }
   }
-  function portStr(p) { return p ? ':' + p : '' }
+  function fmtTimeShort(t) {
+    try { return new Date(t).toLocaleTimeString() } catch (e) { return t }
+  }
+  const BUILD_TAG = 'build 1105-d (domínios liberados)'
+  function isV6(ip) { return ip && ip.indexOf(':') !== -1 }
+  function endpoint(ip, port) {
+    if (!ip) return '—'
+    const h = isV6(ip) ? '[' + ip + ']' : ip
+    return port ? h + ':' + port : h
+  }
+  function procLabel(x) {
+    return x.processName || (x.pid ? 'PID ' + x.pid : 'Processo desconhecido')
+  }
+  function riskLabel(s) {
+    return s === 'high' ? 'Possível ataque' : s === 'medium' ? 'Atenção' : 'Baixa periculosidade'
+  }
+  async function testToast() {
+    try { await call('TestToast') } catch (e) { notify('' + e) }
+  }
 </script>
 
 <div class="layout">
@@ -264,6 +332,8 @@
         <button class="btn sm accent" on:click={() => showUnlock = true}>🔒 Destravar</button>
       {/if}
     {/if}
+
+    <div style="margin-top:10px;font-size:10px;color:var(--muted);text-align:center">{BUILD_TAG}</div>
   </aside>
 
   <main class="main">
@@ -298,17 +368,19 @@
         {#each prompts as p (p.id)}
           <div class="prompt-card">
             <div class="head">
-              <span class="proc">{p.processName || 'Processo desconhecido'}</span>
+              <span class="proc">{procLabel(p)}</span>
               <span class="tag {p.direction}">{p.direction === 'inbound' ? '↓ entrada' : '↑ saída'}</span>
               <span class="tag" style="background:var(--panel-2);color:var(--muted)">{p.protocol}</span>
+              {#if p.service}<span class="tag" style="background:rgba(74,163,255,.15);color:var(--inbound)">{p.service}</span>{/if}
               {#if remaining(p) !== null}
                 <span class="countdown">auto ({p.defaultAction === 'allow' ? 'liberar' : 'bloquear'}) em {remaining(p)}s</span>
               {/if}
             </div>
             <div class="detail">
-              <b>{p.direction === 'inbound' ? 'De' : 'Para'}:</b> {p.remoteIp}{portStr(p.remotePort)}
-              &nbsp;•&nbsp; <b>Local:</b> {p.localIp}{portStr(p.localPort)}
-              {#if p.processPath}<br/><span style="font-size:12px">{p.processPath} (PID {p.pid})</span>{/if}
+              <b>{p.direction === 'inbound' ? 'De' : 'Para'}:</b> {endpoint(p.remoteIp, p.remotePort)}
+              {#if p.remoteHost}<span style="color:var(--text)"> &nbsp;→&nbsp; {p.remoteHost}</span>{/if}
+              <br/><b>Local:</b> {endpoint(p.localIp, p.localPort)}
+              <br/><span style="font-size:12px">{p.processPath ? p.processPath : 'processo não identificado'}{p.pid ? ' · PID ' + p.pid : ''}</span>
             </div>
             <div class="prompt-actions">
               <button class="btn allow" on:click={() => respond(p, 'allow', 'once')}>Liberar uma vez</button>
@@ -317,6 +389,7 @@
               <button class="btn allow" on:click={() => respond(p, 'allow', 'app')}>Sempre liberar app</button>
               <button class="btn block" on:click={() => respond(p, 'block', 'app')}>Sempre bloquear app</button>
               <button class="btn ghost sm" on:click={() => respond(p, 'allow', 'app_remote')}>Liberar só este destino</button>
+              <button class="btn ghost sm" on:click={() => checkSafe(p)} title="Pesquisar a reputação do processo na internet">🔍 É seguro?</button>
             </div>
           </div>
         {/each}
@@ -332,23 +405,41 @@
       <div class="panel" style="padding:0;overflow:auto">
         <table>
           <thead>
-            <tr><th>Hora</th><th>Dir.</th><th>Processo</th><th>Remoto</th><th>Local</th><th>Proto</th><th>Decisão</th><th>Ameaça</th></tr>
+            <tr>
+              <th title="Risco" style="cursor:pointer" on:click={() => setSort('risk')}>●{arrow('risk')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('proto')}>Proto{arrow('proto')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('time')}>Hora{arrow('time')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('dir')}>Dir.{arrow('dir')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('proc')}>Processo{arrow('proc')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('remote')}>Remoto{arrow('remote')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('local')}>Local{arrow('local')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('decision')}>Decisão{arrow('decision')}</th>
+              <th style="cursor:pointer" on:click={() => setSort('threat')}>Ameaça{arrow('threat')}</th>
+            </tr>
           </thead>
           <tbody>
-            {#each filteredHistory as h (h.id)}
+            {#each sortedHistory as h}
               <tr>
-                <td>{fmtTime(h.time)}</td>
+                <td><span class="risk {h.severity || 'low'}" title={riskLabel(h.severity || 'low')}></span></td>
+                <td><span class="tag" style="text-transform:uppercase;font-weight:800;background:{h.protocol === 'udp' ? 'rgba(183,140,255,.18)' : 'rgba(74,163,255,.15)'};color:{h.protocol === 'udp' ? 'var(--outbound)' : 'var(--inbound)'}">{h.protocol || '?'}</span></td>
+                <td title={fmtTime(h.time)} style="white-space:nowrap">{fmtTimeShort(h.time)}</td>
                 <td><span class="tag {h.direction}">{h.direction === 'inbound' ? '↓' : '↑'}</span></td>
-                <td class="ellip" title={h.processPath}>{h.processName || '—'}</td>
-                <td>{h.remoteIp}{portStr(h.remotePort)}</td>
-                <td>{h.localIp}{portStr(h.localPort)}</td>
-                <td>{h.protocol}</td>
+                <td class="ellip" title={h.processPath}>
+                  {h.processName || (h.pid ? 'PID ' + h.pid : '—')}
+                  {#if h.processPath || h.processName}<button class="btn ghost sm" style="padding:1px 6px;margin-left:4px" on:click={() => checkSafe(h)} title="É seguro?">🔍</button>{/if}
+                </td>
+                <td class="ellip" title={h.remoteHost}>
+                  {endpoint(h.remoteIp, h.remotePort)}
+                  {#if h.remoteHost}<span style="color:var(--muted)"> · {h.remoteHost}</span>{/if}
+                  {#if h.service}<span style="color:var(--inbound)"> · {h.service}</span>{/if}
+                </td>
+                <td>{endpoint(h.localIp, h.localPort)}</td>
                 <td><span class="tag {h.decision}">{h.decision === 'allow' ? 'liberado' : 'bloqueado'}</span></td>
                 <td>{#if h.threat}<span class="tag threat" title={h.threatKind}>⚠ {h.threatKind}</span>{:else}—{/if}</td>
               </tr>
             {/each}
             {#if filteredHistory.length === 0}
-              <tr><td colspan="8"><div class="empty" style="padding:30px">Sem registros.</div></td></tr>
+              <tr><td colspan="9"><div class="empty" style="padding:30px">Sem registros.</div></td></tr>
             {/if}
           </tbody>
         </table>
@@ -391,7 +482,7 @@
               <tr>
                 <td><input type="checkbox" checked={r.enabled} on:change={() => toggleRule(r)} disabled={!canEdit} /></td>
                 <td class="ellip" title={r.processPath}>{r.processPath || 'qualquer'}</td>
-                <td>{r.remoteIp || 'qualquer'}{portStr(r.remotePort)}</td>
+                <td>{r.remoteIp ? endpoint(r.remoteIp, r.remotePort) : 'qualquer'}</td>
                 <td>{r.direction || 'qualquer'}</td>
                 <td><span class="tag {r.action}">{r.action === 'allow' ? 'liberar' : 'bloquear'}</span></td>
                 <td><button class="btn sm ghost" on:click={() => deleteRule(r)} disabled={!canEdit}>🗑</button></td>
@@ -416,6 +507,8 @@
         <div class="grid">
           <label class="switch"><input type="checkbox" checked={state.running} on:change={toggleEngine} disabled={!canEdit} /><span class="track"></span> Interceptação ativa</label>
           <label class="switch"><input type="checkbox" bind:checked={config.promptEnabled} disabled={!canEdit} /><span class="track"></span> Perguntar em conexões novas</label>
+          <label class="switch"><input type="checkbox" bind:checked={config.notifyEnabled} disabled={!canEdit} /><span class="track"></span> Popups em segundo plano</label>
+          <label class="switch"><input type="checkbox" bind:checked={config.interceptUdp} disabled={!canEdit} /><span class="track"></span> Interceptar UDP (registrar + regras)</label>
         </div>
         <div class="grid" style="margin-top:14px">
           <label class="field"><span>Padrão saída (sem regra)</span>
@@ -458,8 +551,30 @@
       </div>
 
       <div class="panel">
+        <h3>Domínios sempre liberados</h3>
+        <p style="color:var(--muted);margin:0 0 12px;font-size:12px">
+          Um domínio por linha. Qualquer subdomínio também é liberado (ex.: <code>likesystem.com.br</code>
+          libera <code>gkn.likesystem.com.br</code>, <code>vmcpool.likesystem.com.br</code> etc.).
+          Funciona espionando as respostas de DNS — se o sistema usar DNS-over-HTTPS, me avise.
+        </p>
+        <label class="field">
+          <span>Domínios liberados</span>
+          <textarea rows="3" bind:value={allowedText} disabled={!canEdit} placeholder="likesystem.com.br"></textarea>
+        </label>
+        <div style="margin-top:12px"><button class="btn accent" on:click={saveConfig} disabled={!canEdit}>Salvar</button></div>
+      </div>
+
+      <div class="panel">
         <h3>Segurança</h3>
-        <button class="btn" on:click={() => showChangePw = true} disabled={!canEdit}>Alterar senha master</button>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" on:click={() => showChangePw = true} disabled={!canEdit}>Alterar senha master</button>
+          <button class="btn" on:click={testToast}>Testar notificação</button>
+          <button class="btn block" on:click={quitApp}>Encerrar Ultron (requer senha)</button>
+        </div>
+        <p style="color:var(--muted);margin-top:12px;font-size:12px">
+          Fechar a janela (X) apenas minimiza para a bandeja — o Ultron continua protegendo em segundo plano e avisa por popups.
+          Para encerrar de vez, use o botão acima (exige a senha master).
+        </p>
       </div>
       {/if}
     {/if}

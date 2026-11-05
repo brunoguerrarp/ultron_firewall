@@ -30,4 +30,19 @@ func main() {
 			fmt.Printf("  OK    %-45q\n", f)
 		}
 	}
+
+	net := []string{
+		"tcp.Syn and !tcp.Ack",
+		"(tcp.Syn and !tcp.Ack) or (udp and outbound)",
+		"(tcp.Syn and !tcp.Ack) or (udp and outbound) or (inbound and udp.SrcPort == 53)",
+		"tcp",
+	}
+	fmt.Println("\nValidating NETWORK-layer filters (layer =", windivert.LayerNetwork, ")")
+	for _, f := range net {
+		if err := windivert.CompileFilter(f, windivert.LayerNetwork); err != nil {
+			fmt.Printf("  FAIL  %-45q -> %v\n", f, err)
+		} else {
+			fmt.Printf("  OK    %-45q\n", f)
+		}
+	}
 }

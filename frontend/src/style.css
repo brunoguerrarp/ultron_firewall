@@ -114,6 +114,11 @@ td.ellip { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .tag.outbound { background: rgba(183,140,255,.15); color: var(--outbound); }
 .tag.threat { background: var(--accent); color: #fff; }
 
+.risk { display: inline-block; width: 11px; height: 11px; border-radius: 50%; }
+.risk.low { background: var(--allow); box-shadow: 0 0 6px var(--allow); }
+.risk.medium { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.risk.high { background: var(--block); box-shadow: 0 0 7px var(--block); }
+
 /* Prompt cards */
 .prompt-card { background: var(--panel); border: 1px solid var(--accent-dim); border-left: 4px solid var(--accent); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
 .prompt-card .head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }

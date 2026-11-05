@@ -30,6 +30,8 @@ export namespace model {
 	export class Config {
 	    enabled: boolean;
 	    promptEnabled: boolean;
+	    notifyEnabled: boolean;
+	    interceptUdp: boolean;
 	    defaultOutbound: string;
 	    defaultInbound: string;
 	    promptTimeoutSecs: number;
@@ -37,6 +39,7 @@ export namespace model {
 	    reportUrl: string;
 	    reportToken: string;
 	    blocklist: string[];
+	    allowedDomains: string[];
 	    detectInbound: boolean;
 	    detectScan: boolean;
 	    detectBlocklist: boolean;
@@ -52,6 +55,8 @@ export namespace model {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
 	        this.promptEnabled = source["promptEnabled"];
+	        this.notifyEnabled = source["notifyEnabled"];
+	        this.interceptUdp = source["interceptUdp"];
 	        this.defaultOutbound = source["defaultOutbound"];
 	        this.defaultInbound = source["defaultInbound"];
 	        this.promptTimeoutSecs = source["promptTimeoutSecs"];
@@ -59,6 +64,7 @@ export namespace model {
 	        this.reportUrl = source["reportUrl"];
 	        this.reportToken = source["reportToken"];
 	        this.blocklist = source["blocklist"];
+	        this.allowedDomains = source["allowedDomains"];
 	        this.detectInbound = source["detectInbound"];
 	        this.detectScan = source["detectScan"];
 	        this.detectBlocklist = source["detectBlocklist"];
@@ -80,6 +86,8 @@ export namespace model {
 	    localPort: number;
 	    remoteIp: string;
 	    remotePort: number;
+	    remoteHost: string;
+	    service: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Connection(source);
@@ -98,6 +106,8 @@ export namespace model {
 	        this.localPort = source["localPort"];
 	        this.remoteIp = source["remoteIp"];
 	        this.remotePort = source["remotePort"];
+	        this.remoteHost = source["remoteHost"];
+	        this.service = source["service"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -131,10 +141,13 @@ export namespace model {
 	    localPort: number;
 	    remoteIp: string;
 	    remotePort: number;
+	    remoteHost: string;
+	    service: string;
 	    decision: string;
 	    ruleMatch: string;
 	    threat: boolean;
 	    threatKind: string;
+	    severity: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new HistoryEntry(source);
@@ -153,10 +166,13 @@ export namespace model {
 	        this.localPort = source["localPort"];
 	        this.remoteIp = source["remoteIp"];
 	        this.remotePort = source["remotePort"];
+	        this.remoteHost = source["remoteHost"];
+	        this.service = source["service"];
 	        this.decision = source["decision"];
 	        this.ruleMatch = source["ruleMatch"];
 	        this.threat = source["threat"];
 	        this.threatKind = source["threatKind"];
+	        this.severity = source["severity"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -43,10 +43,13 @@ func Open(path string) (*Store, error) {
 				return err
 			}
 		}
-		// Seed default config on first run.
+		// Start from defaults, then overlay any stored config. This way fields
+		// added in newer versions keep their default (e.g. a config saved
+		// before InterceptUDP existed still gets InterceptUDP=true), instead of
+		// becoming the Go zero value (false).
+		s.cfg = model.DefaultConfig()
 		raw := tx.Bucket(bucketMeta).Get(keyConfig)
 		if raw == nil {
-			s.cfg = model.DefaultConfig()
 			buf, _ := json.Marshal(s.cfg)
 			return tx.Bucket(bucketMeta).Put(keyConfig, buf)
 		}

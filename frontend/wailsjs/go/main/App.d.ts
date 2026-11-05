@@ -3,6 +3,8 @@
 import {model} from '../models';
 import {main} from '../models';
 
+export function CheckProcess(arg1:string,arg2:string):Promise<string>;
+
 export function ClearHistory():Promise<void>;
 
 export function DeleteRule(arg1:string):Promise<void>;
@@ -19,6 +21,8 @@ export function Lock():Promise<void>;
 
 export function PendingPrompts():Promise<Array<model.Connection>>;
 
+export function QuitApp():Promise<void>;
+
 export function RespondPrompt(arg1:string,arg2:string,arg3:string):Promise<boolean>;
 
 export function SaveConfig(arg1:model.Config):Promise<void>;
@@ -29,6 +33,10 @@ export function SetEnabled(arg1:boolean):Promise<void>;
 
 export function SetMasterPassword(arg1:string,arg2:string):Promise<void>;
 
+export function ShowWindow():Promise<void>;
+
 export function TestReport():Promise<void>;
+
+export function TestToast():Promise<void>;
 
 export function Unlock(arg1:string):Promise<void>;

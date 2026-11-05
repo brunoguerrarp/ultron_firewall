@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -31,6 +35,8 @@ type App struct {
 	mu       sync.Mutex
 	unlocked bool
 	startErr string
+	hidden   bool
+	quitting bool
 }
 
 // UIState is the snapshot the frontend uses to render.
@@ -58,8 +64,23 @@ func dataDir() string {
 
 // startup wires the store, engine and reporter, and begins interception if the
 // saved configuration has the firewall enabled.
+// setupLogging routes logs (and recovered-panic traces) to a file, since a GUI
+// build has no visible console. Path: %ProgramData%\UltronFirewall\ultron.log
+func setupLogging() string {
+	path := filepath.Join(dataDir(), "ultron.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return ""
+	}
+	log.SetOutput(f)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.Printf("==== Ultron Firewall started ====")
+	return path
+}
+
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	setupLogging()
 
 	st, err := store.Open(filepath.Join(dataDir(), "ultron.db"))
 	if err != nil {
@@ -73,12 +94,14 @@ func (a *App) startup(ctx context.Context) {
 
 	a.engine.OnPrompt = func(p model.PromptRequest) {
 		wrt.EventsEmit(a.ctx, "prompt:new", p)
+		a.notifyPrompt(p)
 	}
 	a.engine.OnPromptResolved = func(id string) {
 		wrt.EventsEmit(a.ctx, "prompt:resolved", id)
 	}
 	a.engine.OnHistory = func(h model.HistoryEntry) {
 		wrt.EventsEmit(a.ctx, "history:new", h)
+		a.notifyDecision(h)
 	}
 	a.engine.OnStatus = func(running bool, errMsg string) {
 		a.mu.Lock()
@@ -90,6 +113,9 @@ func (a *App) startup(ctx context.Context) {
 		})
 	}
 
+	a.initToast()
+	go a.runTray()
+
 	if st.Config().Enabled {
 		go func() {
 			if err := a.engine.Start(); err != nil {
@@ -99,7 +125,103 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
+// setHidden records whether the window is hidden (running in the tray). Prompts
+// still happen in the background; we just alert the user with a popup so they
+// can open the panel and decide.
+func (a *App) setHidden(h bool) {
+	a.mu.Lock()
+	a.hidden = h
+	a.mu.Unlock()
+}
+
+func (a *App) isHidden() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.hidden
+}
+
+// onBeforeClose intercepts the window close: instead of quitting, Ultron hides
+// to the system tray and keeps protecting in the background. Returning true
+// tells Wails to prevent the default close/quit. It is panic-guarded and always
+// returns true, so a failure in the hide path can never let the app quit.
+func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
+	a.mu.Lock()
+	quitting := a.quitting
+	a.mu.Unlock()
+	if quitting {
+		// A deliberate, password-authorized quit: let the app actually close.
+		log.Printf("onBeforeClose: authorized quit, allowing close")
+		return false
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("onBeforeClose: recovered: %v", r)
+		}
+		prevent = true // closing the window just hides to tray
+	}()
+	log.Printf("onBeforeClose: hiding window to tray")
+	wrt.WindowHide(ctx)
+	a.setHidden(true)
+	a.toast("Ultron Firewall", "Continua protegendo em segundo plano. Clique no ícone da bandeja para reabrir.")
+	return true
+}
+
+// notifyPrompt alerts the user about a connection awaiting a decision while the
+// window is hidden, so they can open the panel and respond.
+func (a *App) notifyPrompt(p model.PromptRequest) {
+	if !a.isHidden() || a.store == nil || !a.store.Config().NotifyEnabled {
+		return
+	}
+	who := p.ProcessName
+	if who == "" {
+		if p.PID != 0 {
+			who = fmt.Sprintf("PID %d", p.PID)
+		} else {
+			who = "Um processo"
+		}
+	}
+	dest := p.RemoteIP
+	if p.RemoteHost != "" {
+		dest = p.RemoteHost
+	}
+	a.toast("🔔 Conexão aguardando decisão",
+		fmt.Sprintf("%s → %s:%d — abra o Ultron para liberar ou bloquear.", who, dest, p.RemotePort))
+}
+
+// TestToast shows a sample notification so the user can confirm popups work.
+func (a *App) TestToast() {
+	a.toast("Ultron Firewall", "Notificação de teste — se você está vendo isto, os popups funcionam. ✅")
+}
+
+// notifyDecision shows a tray popup for a decision while the window is hidden.
+func (a *App) notifyDecision(h model.HistoryEntry) {
+	if !a.isHidden() || a.store == nil || !a.store.Config().NotifyEnabled {
+		return
+	}
+	who := h.ProcessName
+	if who == "" {
+		if h.PID != 0 {
+			who = fmt.Sprintf("PID %d", h.PID)
+		} else {
+			who = "processo desconhecido"
+		}
+	}
+	dest := h.RemoteIP
+	if h.RemoteHost != "" {
+		dest = h.RemoteHost
+	}
+	title := "✅ Liberado"
+	if h.Decision == model.ActionBlock {
+		title = "🚫 Bloqueado"
+	}
+	if h.Threat {
+		title = "⚠ Ameaça: " + h.ThreatKind
+	}
+	a.toast(title, fmt.Sprintf("%s → %s:%d", who, dest, h.RemotePort))
+}
+
 func (a *App) shutdown(ctx context.Context) {
+	log.Printf("shutdown: app terminating")
 	if a.engine != nil {
 		a.engine.Stop()
 	}
@@ -397,4 +519,73 @@ func (a *App) TestReport() error {
 		return errors.New("test payload was not classified; check detection settings")
 	}
 	return nil
+}
+
+// ---- Window / lifecycle ----
+
+// ShowWindow brings the window back from the tray.
+func (a *App) ShowWindow() {
+	if a.ctx == nil {
+		return
+	}
+	log.Printf("ShowWindow: restoring window from tray")
+	wrt.WindowShow(a.ctx)
+	wrt.WindowUnminimise(a.ctx)
+	a.setHidden(false)
+}
+
+// QuitApp fully terminates Ultron. Requires the master password (unlock). Sets
+// the quitting flag so onBeforeClose allows the close instead of hiding.
+func (a *App) QuitApp() error {
+	if err := a.requireUnlock(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.quitting = true
+	a.mu.Unlock()
+	log.Printf("QuitApp: authorized quit requested")
+	wrt.Quit(a.ctx)
+	return nil
+}
+
+// ---- Process reputation ----
+
+// CheckProcess opens the user's browser to check whether a process is safe:
+// VirusTotal by file hash when the path is known, otherwise a web search by
+// name. Returns the URL that was opened.
+func (a *App) CheckProcess(path, name string) (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("not ready")
+	}
+	var u string
+	if path != "" {
+		if h := fileSHA256(path); h != "" {
+			u = "https://www.virustotal.com/gui/file/" + h
+		}
+	}
+	if u == "" {
+		q := name
+		if q == "" {
+			q = filepath.Base(path)
+		}
+		if q == "" || q == "." {
+			return "", errors.New("sem processo para pesquisar")
+		}
+		u = "https://www.google.com/search?q=" + url.QueryEscape(q+" process safe or malware?")
+	}
+	wrt.BrowserOpenURL(a.ctx, u)
+	return u, nil
+}
+
+func fileSHA256(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
