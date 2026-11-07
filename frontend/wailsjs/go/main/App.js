@@ -6,8 +6,20 @@ export function CheckProcess(arg1, arg2) {
   return window['go']['main']['App']['CheckProcess'](arg1, arg2);
 }
 
+export function CleanCookies() {
+  return window['go']['main']['App']['CleanCookies']();
+}
+
 export function ClearHistory() {
   return window['go']['main']['App']['ClearHistory']();
+}
+
+export function CloseBrowsersAndClean() {
+  return window['go']['main']['App']['CloseBrowsersAndClean']();
+}
+
+export function DefaultTrackerDomains() {
+  return window['go']['main']['App']['DefaultTrackerDomains']();
 }
 
 export function DeleteRule(arg1) {

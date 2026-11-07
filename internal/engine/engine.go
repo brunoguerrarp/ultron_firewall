@@ -68,6 +68,7 @@ type Engine struct {
 
 	domainMu    sync.Mutex
 	domainAllow map[string]time.Time // remote IP -> expiry, learned from DNS snooping
+	domainBlock map[string]time.Time // remote IP -> expiry, learned for tracker domains
 
 	interactive atomic.Bool // true = window open, prompt the user; false = background, apply defaults
 
@@ -92,6 +93,7 @@ func New(s *store.Store, t *threat.Service) *Engine {
 		decisions:   make(map[string]cachedDecision),
 		prompting:   make(map[string]bool),
 		domainAllow: make(map[string]time.Time),
+		domainBlock: make(map[string]time.Time),
 		ownPID:      uint32(os.Getpid()),
 	}
 	e.interactive.Store(true)
@@ -275,6 +277,12 @@ func (e *Engine) handleTCP(h *windivert.Handle, addr *windivert.Address, pkt []b
 		return
 	}
 
+	// Tracker/ad domain (learned via DNS snooping): block so no cookie is set.
+	if cfg.BlockTrackers && e.blockIP(conn.RemoteIP) {
+		e.decide(h, conn, model.ActionBlock, "rastreador bloqueado", addr, pkt, cfg, time.Minute)
+		return
+	}
+
 	// Inbound connections are not prompted (would flood on scans); apply the
 	// default and let threat detection flag them.
 	if inbound {
@@ -341,6 +349,10 @@ func (e *Engine) handleUDP(h *windivert.Handle, addr *windivert.Address, pkt []b
 		e.decide(h, conn, model.ActionAllow, "domínio liberado", addr, pkt, cfg, udpTTL)
 		return
 	}
+	if cfg.BlockTrackers && e.blockIP(conn.RemoteIP) {
+		e.decide(h, conn, model.ActionBlock, "rastreador bloqueado", addr, pkt, cfg, udpTTL)
+		return
+	}
 	// Unknown UDP: allow + log (blocking by default would break DNS/QUIC).
 	e.decide(h, conn, model.ActionAllow, "udp-auto", addr, pkt, cfg, udpTTL)
 }
@@ -399,18 +411,39 @@ func (e *Engine) allowIP(ip string) bool {
 	return true
 }
 
+// blockIP reports whether ip is currently blocklisted because it was returned
+// by a DNS response for one of the configured tracker domains.
+func (e *Engine) blockIP(ip string) bool {
+	e.domainMu.Lock()
+	defer e.domainMu.Unlock()
+	exp, ok := e.domainBlock[ip]
+	if !ok {
+		return false
+	}
+	if time.Now().After(exp) {
+		delete(e.domainBlock, ip)
+		return false
+	}
+	return true
+}
+
 // snoopDNS inspects a DNS response payload. If the queried name belongs to a
 // configured allowed domain, the returned A/AAAA IPs are added to the allow
-// set so subsequent connections to them are permitted automatically.
+// set so subsequent connections to them are permitted automatically. If it
+// belongs to a tracker domain, the IPs are added to the block set instead so
+// connections to them are dropped (preventing trackers from setting cookies).
 func (e *Engine) snoopDNS(payload []byte) {
 	cfg := e.store.Config()
-	if len(cfg.AllowedDomains) == 0 {
+	hasAllow := len(cfg.AllowedDomains) > 0
+	hasTrackers := cfg.BlockTrackers && len(cfg.TrackerDomains) > 0
+	if !hasAllow && !hasTrackers {
 		return
 	}
 	qname, ips, ttl := parseDNSResponse(payload)
-	if qname == "" || len(ips) == 0 || !domainMatches(qname, cfg.AllowedDomains) {
+	if qname == "" || len(ips) == 0 {
 		return
 	}
+
 	d := time.Duration(ttl) * time.Second
 	if d < 10*time.Minute {
 		d = 10 * time.Minute
@@ -419,12 +452,25 @@ func (e *Engine) snoopDNS(payload []byte) {
 		d = 24 * time.Hour
 	}
 	exp := time.Now().Add(d)
-	e.domainMu.Lock()
-	for _, ip := range ips {
-		e.domainAllow[ip] = exp
+
+	// An explicit allow always wins over the tracker list, so check it first.
+	if hasAllow && domainMatches(qname, cfg.AllowedDomains) {
+		e.domainMu.Lock()
+		for _, ip := range ips {
+			e.domainAllow[ip] = exp
+		}
+		e.domainMu.Unlock()
+		log.Printf("domain-allow: %s -> %v", qname, ips)
+		return
 	}
-	e.domainMu.Unlock()
-	log.Printf("domain-allow: %s -> %v", qname, ips)
+	if hasTrackers && domainMatches(qname, cfg.TrackerDomains) {
+		e.domainMu.Lock()
+		for _, ip := range ips {
+			e.domainBlock[ip] = exp
+		}
+		e.domainMu.Unlock()
+		log.Printf("tracker-block: %s -> %v", qname, ips)
+	}
 }
 
 // ---- decision cache + prompt dedupe ----

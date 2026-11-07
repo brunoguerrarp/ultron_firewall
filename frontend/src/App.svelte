@@ -33,6 +33,7 @@
   let nr = newRule()
   let blocklistText = ''
   let allowedText = ''
+  let trackerText = ''
 
   // History filter
   let filter = ''
@@ -63,6 +64,7 @@
       config = await call('GetConfig')
       blocklistText = (config.blocklist || []).join('\n')
       allowedText = (config.allowedDomains || []).join('\n')
+      trackerText = (config.trackerDomains || []).join('\n')
     } catch (e) { notify('' + e) }
   }
   async function loadRules() { try { rules = await call('ListRules') } catch (e) { notify('' + e) } }
@@ -225,6 +227,7 @@
     if (!guardEdit()) return
     config.blocklist = blocklistText.split('\n').map(s => s.trim()).filter(Boolean)
     config.allowedDomains = allowedText.split('\n').map(s => s.trim()).filter(Boolean)
+    config.trackerDomains = trackerText.split('\n').map(s => s.trim()).filter(Boolean)
     config.promptTimeoutSecs = Number(config.promptTimeoutSecs) || 0
     config.scanWindowSecs = Number(config.scanWindowSecs) || 0
     config.scanPortThreshold = Number(config.scanPortThreshold) || 0
@@ -278,7 +281,7 @@
   function fmtTimeShort(t) {
     try { return new Date(t).toLocaleTimeString() } catch (e) { return t }
   }
-  const BUILD_TAG = 'build 1105-e (arquivo no histórico)'
+  const BUILD_TAG = 'build 1106-a (correção clique na bandeja)'
   function isV6(ip) { return ip && ip.indexOf(':') !== -1 }
   function endpoint(ip, port) {
     if (!ip) return '—'
@@ -293,6 +296,34 @@
   }
   async function testToast() {
     try { await call('TestToast') } catch (e) { notify('' + e) }
+  }
+  async function restoreTrackers() {
+    try {
+      const list = await call('DefaultTrackerDomains')
+      trackerText = (list || []).join('\n')
+      notify('Lista padrão restaurada — clique em Salvar para aplicar.')
+    } catch (e) { notify('' + e) }
+  }
+  let showCloseBrowsers = false
+  let lockedBrowsers = []
+  async function cleanCookies() {
+    notify('Limpando cookies...')
+    try {
+      const r = await call('CleanCookies')
+      notify((r && r.message) || 'Cookies limpos.')
+      if (r && r.locked && r.locked.length) {
+        lockedBrowsers = r.locked
+        showCloseBrowsers = true
+      }
+    } catch (e) { notify('' + e) }
+  }
+  async function closeBrowsersAndClean() {
+    showCloseBrowsers = false
+    notify('Fechando navegadores e limpando...')
+    try {
+      const r = await call('CloseBrowsersAndClean')
+      notify((r && r.message) || 'Cookies limpos.')
+    } catch (e) { notify('' + e) }
   }
 </script>
 
@@ -568,6 +599,35 @@
       </div>
 
       <div class="panel">
+        <h3>🛡️ Rastreamento & cookies</h3>
+        <div class="grid">
+          <label class="switch"><input type="checkbox" bind:checked={config.blockTrackers} disabled={!canEdit} /><span class="track"></span> Bloquear rastreadores (anúncios/analytics)</label>
+        </div>
+        <p style="color:var(--muted);margin:12px 0;font-size:12px">
+          Derruba as conexões para domínios de rastreamento conhecidos (detectados via DNS), então eles nem chegam a gravar
+          cookies no seu navegador. Um domínio por linha — subdomínios já entram juntos (ex.: <code>doubleclick.net</code>).
+        </p>
+        <label class="field">
+          <span>Domínios de rastreadores bloqueados</span>
+          <textarea rows="5" bind:value={trackerText} disabled={!canEdit} placeholder="doubleclick.net"></textarea>
+        </label>
+        <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn accent" on:click={saveConfig} disabled={!canEdit}>Salvar</button>
+          <button class="btn ghost" on:click={restoreTrackers} disabled={!canEdit}>Restaurar lista padrão</button>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:18px 0" />
+
+        <h3 style="margin:0 0 8px">🧹 Limpar cookies do sistema</h3>
+        <p style="color:var(--muted);margin:0 0 12px;font-size:12px">
+          Apaga <b>todos</b> os cookies dos navegadores instalados (Chrome, Edge, Brave, Opera, Vivaldi e Firefox, em todos os perfis).
+          Isso vai <b>desconectar você de todos os sites</b>. Para funcionar, <b>feche os navegadores</b> antes — os que ficarem abertos
+          serão informados para você fechar e tentar de novo.
+        </p>
+        <button class="btn block" on:click={cleanCookies}>🧹 Limpar todos os cookies agora</button>
+      </div>
+
+      <div class="panel">
         <h3>Segurança</h3>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" on:click={() => showChangePw = true} disabled={!canEdit}>Alterar senha master</button>
@@ -594,6 +654,23 @@
       <div class="row">
         <button class="btn accent grow" on:click={doUnlock}>Destravar</button>
         <button class="btn ghost" on:click={() => showUnlock = false}>Cancelar</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showCloseBrowsers}
+  <div class="modal-bg" on:click|self={() => showCloseBrowsers = false}>
+    <div class="modal">
+      <h3>🧹 Fechar navegadores para limpar</h3>
+      <p>
+        Estes navegadores estão abertos e seguram os cookies:
+        <b>{lockedBrowsers.join(', ')}</b>.
+        Para limpar de verdade, preciso <b>fechá-los</b> agora — você vai perder as abas abertas.
+      </p>
+      <div class="row">
+        <button class="btn block grow" on:click={closeBrowsersAndClean}>Fechar e limpar agora</button>
+        <button class="btn ghost" on:click={() => showCloseBrowsers = false}>Cancelar</button>
       </div>
     </div>
   </div>

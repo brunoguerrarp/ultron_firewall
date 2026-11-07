@@ -18,6 +18,7 @@ import (
 
 	wrt "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"ultron_firewall/internal/cookies"
 	"ultron_firewall/internal/engine"
 	"ultron_firewall/internal/model"
 	"ultron_firewall/internal/store"
@@ -575,6 +576,52 @@ func (a *App) CheckProcess(path, name string) (string, error) {
 	}
 	wrt.BrowserOpenURL(a.ctx, u)
 	return u, nil
+}
+
+// DefaultTrackerDomains returns the built-in tracker blocklist, so the UI can
+// offer a "restore defaults" action for the editable list.
+func (a *App) DefaultTrackerDomains() []string {
+	return model.DefaultTrackerDomains()
+}
+
+// ---- Cookies ----
+
+// CleanCookies deletes all browser cookies (Chromium browsers + Firefox, every
+// profile). Not gated by the master password (user requested it stay always
+// available); it is destructive (logs the user out of sites). Browsers must be
+// closed for their cookie files to be removable; any still open are named in
+// the returned summary so the user can close them and retry.
+// CleanResult is returned to the UI so it can both show a message and know
+// which browsers were locked (open) and still need closing.
+type CleanResult struct {
+	Message string   `json:"message"`
+	Locked  []string `json:"locked"`
+}
+
+func (a *App) CleanCookies() (CleanResult, error) {
+	if err := a.ready(); err != nil {
+		return CleanResult{}, err
+	}
+	res := cookies.CleanAll()
+	log.Printf("CleanCookies: removed=%d browsers=%v locked=%v", res.Removed, res.Browsers, res.Locked)
+	return CleanResult{Message: res.Summary(), Locked: res.Locked}, nil
+}
+
+// CloseBrowsersAndClean closes any running browsers (graceful first, then force)
+// and then wipes cookies. Used when the first attempt found locked browsers and
+// the user confirmed closing them.
+func (a *App) CloseBrowsersAndClean() (CleanResult, error) {
+	if err := a.ready(); err != nil {
+		return CleanResult{}, err
+	}
+	closed := cookies.CloseBrowsers()
+	res := cookies.CleanAll()
+	log.Printf("CloseBrowsersAndClean: closed=%v removed=%d locked=%v", closed, res.Removed, res.Locked)
+	msg := res.Summary()
+	if len(closed) > 0 {
+		msg = "Navegadores fechados. " + msg
+	}
+	return CleanResult{Message: msg, Locked: res.Locked}, nil
 }
 
 func fileSHA256(path string) string {

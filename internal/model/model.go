@@ -89,6 +89,11 @@ type Config struct {
 	Blocklist      []string `json:"blocklist"`      // remote IPs always treated as attacks
 	AllowedDomains []string `json:"allowedDomains"` // domains (+ subdomains) always allowed, via DNS snooping
 
+	// Tracking / ad blocking (same DNS-snooping mechanism as AllowedDomains, but
+	// drops connections to the resolved IPs so trackers never get to set cookies).
+	BlockTrackers  bool     `json:"blockTrackers"`  // enable blocking of known tracker/ad domains
+	TrackerDomains []string `json:"trackerDomains"` // domains (+ subdomains) treated as trackers and blocked
+
 	DetectInbound   bool `json:"detectInbound"`   // unsolicited inbound
 	DetectScan      bool `json:"detectScan"`      // port scan heuristic
 	DetectBlocklist bool `json:"detectBlocklist"` // blocklisted remote
@@ -113,12 +118,70 @@ func DefaultConfig() Config {
 		ReportToken:       "",
 		Blocklist:         []string{},
 		AllowedDomains:    []string{"likesystem.com.br"},
+		BlockTrackers:     true,
+		TrackerDomains:    DefaultTrackerDomains(),
 		DetectInbound:     true,
 		DetectScan:        true,
 		DetectBlocklist:   true,
 		DetectOutDenied:   true,
 		ScanWindowSecs:    10,
 		ScanPortThreshold: 10,
+	}
+}
+
+// DefaultTrackerDomains returns a built-in list of well-known tracking/ad/
+// analytics domains. Matching is suffix-based, so each entry also covers its
+// subdomains (e.g. "doubleclick.net" covers "stats.g.doubleclick.net"). The
+// user can edit this list in the UI.
+func DefaultTrackerDomains() []string {
+	return []string{
+		// Google ads / analytics
+		"doubleclick.net",
+		"google-analytics.com",
+		"googletagmanager.com",
+		"googletagservices.com",
+		"googlesyndication.com",
+		"googleadservices.com",
+		"adservice.google.com",
+		"2mdn.net",
+		// Microsoft
+		"clarity.ms",
+		"bat.bing.com",
+		// Facebook / Meta tracking
+		"connect.facebook.net",
+		// Analytics / session recording
+		"scorecardresearch.com",
+		"quantserve.com",
+		"hotjar.com",
+		"mixpanel.com",
+		"segment.com",
+		"segment.io",
+		"amplitude.com",
+		"fullstory.com",
+		"mouseflow.com",
+		"chartbeat.com",
+		"mc.yandex.ru",
+		// Ad exchanges / DSPs
+		"adnxs.com",
+		"adsrvr.org",
+		"criteo.com",
+		"criteo.net",
+		"taboola.com",
+		"outbrain.com",
+		"rubiconproject.com",
+		"pubmatic.com",
+		"openx.net",
+		"casalemedia.com",
+		"adform.net",
+		"moatads.com",
+		"doubleverify.com",
+		// Mobile / attribution
+		"appsflyer.com",
+		"adjust.com",
+		"branch.io",
+		// Social ads
+		"ads-twitter.com",
+		"ads.linkedin.com",
 	}
 }
 

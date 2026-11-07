@@ -1,5 +1,19 @@
 export namespace main {
 	
+	export class CleanResult {
+	    message: string;
+	    locked: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CleanResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.message = source["message"];
+	        this.locked = source["locked"];
+	    }
+	}
 	export class UIState {
 	    running: boolean;
 	    engineError: string;
@@ -40,6 +54,8 @@ export namespace model {
 	    reportToken: string;
 	    blocklist: string[];
 	    allowedDomains: string[];
+	    blockTrackers: boolean;
+	    trackerDomains: string[];
 	    detectInbound: boolean;
 	    detectScan: boolean;
 	    detectBlocklist: boolean;
@@ -65,6 +81,8 @@ export namespace model {
 	        this.reportToken = source["reportToken"];
 	        this.blocklist = source["blocklist"];
 	        this.allowedDomains = source["allowedDomains"];
+	        this.blockTrackers = source["blockTrackers"];
+	        this.trackerDomains = source["trackerDomains"];
 	        this.detectInbound = source["detectInbound"];
 	        this.detectScan = source["detectScan"];
 	        this.detectBlocklist = source["detectBlocklist"];
